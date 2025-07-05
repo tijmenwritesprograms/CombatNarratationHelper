@@ -198,6 +198,42 @@ Challenge 17 (18,000 XP)"></textarea>
                                     }
                                 </div>
                             }
+
+                            @if (parsedMonster.Actions.Any())
+                            {
+                                <div class="mb-3">
+                                    <h5>Actions</h5>
+                                    @foreach (var action in parsedMonster.Actions.Select((a, i) => (a, i)))
+                                    {
+                                        <div class="mb-2">
+                                            <strong>@action.a.Name</strong>: @action.a.Description
+                                            <button class="btn btn-sm btn-outline-success ms-2" @onclick="() => RollAttack(action.i, false)">Roll</button>
+                                            @if (actionResults.TryGetValue($"A{action.i}", out var result))
+                                            {
+                                                <div class="mt-1"><em>@result</em></div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
+
+                            @if (parsedMonster.LegendaryActions.Any())
+                            {
+                                <div class="mb-3">
+                                    <h5>Legendary Actions</h5>
+                                    @foreach (var action in parsedMonster.LegendaryActions.Select((a, i) => (a, i)))
+                                    {
+                                        <div class="mb-2">
+                                            <strong>@action.a.Name</strong>: @action.a.Description
+                                            <button class="btn btn-sm btn-outline-warning ms-2" @onclick="() => RollAttack(action.i, true)">Roll</button>
+                                            @if (actionResults.TryGetValue($"L{action.i}", out var result))
+                                            {
+                                                <div class="mt-1"><em>@result</em></div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
                         </div>
                     }
                     else
@@ -256,17 +292,72 @@ Challenge 17 (18,000 XP)"></textarea>
 @code {
     private string statblockText = "";
     private MonsterStatblock? parsedMonster;
+    private Dictionary<string, string> actionResults = new();
+    private Random rng = new();
 
     private void ParseStatblock()
     {
         if (!string.IsNullOrWhiteSpace(statblockText))
         {
             parsedMonster = ParserService.ParseStatblock(statblockText);
+            actionResults.Clear();
         }
     }
 
     private string FormatModifier(int modifier)
     {
         return modifier >= 0 ? $"+{modifier}" : modifier.ToString();
+    }
+
+    private void RollAttack(int index, bool legendary)
+    {
+        if (parsedMonster == null) return;
+        var action = legendary ? parsedMonster.LegendaryActions.ElementAtOrDefault(index) : parsedMonster.Actions.ElementAtOrDefault(index);
+        if (action == null) return;
+        var result = GenerateAttackResult(action.Description);
+        actionResults[legendary ? $"L{index}" : $"A{index}"] = result;
+    }
+
+    private string GenerateAttackResult(string description)
+    {
+        // Find dice expressions like 13 (2d6 + 6) or 54 (12d8)
+        var diceRegex = new System.Text.RegularExpressions.Regex(@"(\d+)\s*\((\d+d\d+(?:\s*[+-]\s*\d+)?)\)");
+        var matches = diceRegex.Matches(description);
+        List<string> rolls = new();
+        foreach (System.Text.RegularExpressions.Match match in matches)
+        {
+            var diceExpr = match.Groups[2].Value;
+            var roll = RollDice(diceExpr);
+            rolls.Add($"{diceExpr}: {roll}");
+        }
+        if (rolls.Count == 0)
+        {
+            // Try to find any dice expression (e.g. 12d8, 2d6+6)
+            var anyDiceRegex = new System.Text.RegularExpressions.Regex(@"(\d+d\d+(?:\s*[+-]\s*\d+)?)");
+            var anyMatches = anyDiceRegex.Matches(description);
+            foreach (System.Text.RegularExpressions.Match match in anyMatches)
+            {
+                var diceExpr = match.Groups[1].Value;
+                var roll = RollDice(diceExpr);
+                rolls.Add($"{diceExpr}: {roll}");
+            }
+        }
+        return rolls.Count > 0 ? string.Join(", ", rolls) : "No dice found.";
+    }
+
+    private int RollDice(string diceExpr)
+    {
+        // Supports NdM+X or NdM-X
+        var match = System.Text.RegularExpressions.Regex.Match(diceExpr.Replace(" ", ""), @"(\d+)d(\d+)([+-]\d+)?");
+        if (!match.Success) return 0;
+        int n = int.Parse(match.Groups[1].Value);
+        int d = int.Parse(match.Groups[2].Value);
+        int mod = 0;
+        if (match.Groups[3].Success)
+            int.TryParse(match.Groups[3].Value, out mod);
+        int total = 0;
+        for (int i = 0; i < n; i++)
+            total += rng.Next(1, d + 1);
+        return total + mod;
     }
 }
